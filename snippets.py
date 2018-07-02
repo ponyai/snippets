@@ -14,6 +14,7 @@ import os
 import re
 import time
 import urllib
+from urllib import urlencode
 
 from google.appengine.api import mail
 from google.appengine.api import users
@@ -22,6 +23,7 @@ import webapp2
 from webapp2_extras import jinja2
 
 import hipchatlib
+import httplib2
 import models
 import slacklib
 import util
@@ -726,11 +728,29 @@ def _maybe_send_snippets_mail(to, subject, template_path, template_values):
     template_values.setdefault('hostname', app_settings.hostname)
 
     jinja2_instance = jinja2.get_jinja2()
-    mail.send_mail(sender=app_settings.email_from,
-                   to=to,
-                   subject=subject,
-                   body=jinja2_instance.render_template(template_path,
-                                                        **template_values))
+    http = httplib2.Http()
+    http.add_credentials('api', 'cc16ac12757a049eb3dff8e8d9422921-770f03c4-2525afde')
+    url = 'https://api.mailgun.net/v3/{}/messages'.format('mail.pony.ai')
+    data = {
+        'from': 'Snippet Robot <noreply@{}>'.format('mail.pony.ai'),
+        'to': to,
+        'subject': subject,
+        'text': jinja2_instance.render_template(template_path, **template_values)
+    }
+
+    resp, content = http.request(
+        url, 'POST', urlencode(data),
+        headers={"Content-Type": "application/x-www-form-urlencoded"})
+
+    if resp.status != 200:
+        raise RuntimeError(
+            'Mailgun API error: {} {}'.format(resp.status, content))
+
+    # mail.send_mail(sender=app_settings.email_from,
+    #                to=to,
+    #                subject=subject,
+    #                body=jinja2_instance.render_template(template_path,
+    #                                                     **template_values))
     # Appengine has a quota of 32 emails per minute:
     #    https://developers.google.com/appengine/docs/quotas#Mail
     # We pause 2 seconds between each email to make sure we
@@ -751,7 +771,7 @@ class SendReminderEmail(BaseHandler):
 
     def _send_mail(self, email):
         template_values = {}
-        _maybe_send_snippets_mail(email, 'Weekly snippets due today at 5pm',
+        _maybe_send_snippets_mail(email, 'Weekly snippets due today at 8:30pm',
                                   'reminder_email.txt', template_values)
 
     def get(self):
@@ -764,7 +784,7 @@ class SendReminderEmail(BaseHandler):
                 logging.debug('did not send reminder email to %s: '
                               'has a snippet already' % user_email)
 
-        msg = 'Reminder: Weekly snippets due today at 5pm.'
+                msg = 'Reminder: Weekly snippets due today at 8:30pm.'
         _send_to_chat(msg, "/")
 
 
